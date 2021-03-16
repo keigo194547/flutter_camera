@@ -1,9 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-//import 'package:flutter/rendering.dart';
-//ist<CameraDescription> cameras;
 import 'dart:io';
+import 'dart:ui' as ui;
 
 
 Future<void> main() async {
@@ -14,22 +13,54 @@ Future<void> main() async {
   //カメラの指定
   final firstCamera = cameras.first;
 
-  runApp(
-    //アプリケーション全体の設定
-    MaterialApp(
-      theme: ThemeData.dark(), home: TakePictureScreen(
+  runApp(new MyApp(firstCamera));
+}
+
+class MyApp extends StatelessWidget {
+
+  final useCamera;
+
+  MyApp(this.useCamera);
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      theme: ThemeData.dark(),
+      home: TakePictureScreen(
         // Pass the appropriate camera to the TakePictureScreen widget.
-        camera: firstCamera,
+        camera: useCamera,
       ),
-    ),
-  );
+    );
+  }
+}
+
+
+class MyPainter extends CustomPainter {
+  Offset _point;
+  ui.Image _img;
+
+  MyPainter(this._point, this._img);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (_img != null) { 
+      // canvas.drawImage(_img, _point, Paint());
+      final src = Rect.fromLTWH(0, 0, _img.width.toDouble(), _img.height.toDouble());
+      final dst = Rect.fromCenter(center: _point, width: 100, height: 100);
+      canvas.drawImageRect(_img, src, dst, Paint());
+    }
+  }
+
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) => true;
+
 }
 
 // カメラでとる。
 class TakePictureScreen extends StatefulWidget {
   final CameraDescription camera;
   //画面のコンストラクタ
-  const TakePictureScreen({ Key key, @required this.camera,}) : super(key: key);
+  const TakePictureScreen({ Key key, @required this.camera,}) : super(key: key,);
 
   @override
   TakePictureScreenState createState() => TakePictureScreenState();
@@ -39,6 +70,20 @@ class TakePictureScreenState extends State<TakePictureScreen> {
 
   CameraController _controller;
   Future<void> _initializeControllerFuture;
+
+  Offset _touchPoint = Offset(0, 0);
+  ui.Image _useImage ;
+
+  Future<ui.Image> _getImage(String path, Function setFunc) async {
+    Completer<ImageInfo> completer = Completer();
+    NetworkImage(path)
+        .resolve(ImageConfiguration())
+        .addListener(ImageStreamListener((ImageInfo info, bool _) {
+          completer.complete(info);
+        }));
+    ImageInfo imageInfo = await completer.future;
+    setFunc(imageInfo.image);
+  }
 
   @override//↓void Start
   void initState() {
@@ -52,6 +97,18 @@ class TakePictureScreenState extends State<TakePictureScreen> {
     );
     //コントローラーのカメラを初期化
     _initializeControllerFuture = _controller.initialize();
+    _getImage(
+        'https://pbs.twimg.com/profile_images/1362423294629085190/MvJqEGbF_400x400.jpg',
+        (image) {
+          setState(() { _useImage = image; });
+        }
+    );
+  }
+
+  void _movePointer(TapDownDetails details) {
+    setState(() {
+      this._touchPoint = details.localPosition;
+    });
   }
 
   @override
@@ -64,7 +121,16 @@ class TakePictureScreenState extends State<TakePictureScreen> {
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.done) {
             // カメラプレビューの表示
-            return CameraPreview(_controller);
+            return CameraPreview(
+              _controller,
+              child: GestureDetector(
+                  onTapDown: _movePointer,
+                  child: CustomPaint(
+                    painter: MyPainter(_touchPoint, _useImage),
+                    child: Center(),
+                  ),
+              ),
+            );
           } else {
             // ロード中はインジケーターを表示する。くるくる回るやつ
             return Center(child: CircularProgressIndicator());
@@ -97,7 +163,7 @@ class TakePictureScreenState extends State<TakePictureScreen> {
       ),
       bottomNavigationBar: BottomAppBar(
         color: Colors.blue,
-          child: Container(height: 50.0),
+        child: Container(height: 50.0),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endDocked,
     );
